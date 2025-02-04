@@ -1,0 +1,316 @@
+---
+title: "Tubes ADW_Kelompok 7_RA"
+author: "Kelompok 7"
+date: "2024-10-28"
+output: html_document
+---
+
+
+```{r}
+library(readxl)
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(dplyr)
+library(graphics)
+library(TSA)
+library(tidyverse)
+library(lubridate)
+library(gridExtra)
+library(ggfortify)
+library(lmtest)
+library(stats)
+library(MASS)
+library(fpp2)
+library(FinTS)
+library(car)
+library(nortest)
+library(aTSA)
+library(dynlm)
+library(psych)
+library(moments)
+```
+
+```{r}
+#Deklarasi Data
+data_gula <- read_excel("Produksi gula.xlsx")
+data_gula
+```
+
+
+```{r}
+data<-as.numeric(data_gula$Jumlah)
+data<-ts(data, start=c(2017,1), frequency = 12)
+data
+
+```
+
+```{r}
+
+#Time Series Plot
+ts.plot(data, main="Produksi Gula Tahun 2017-2022", xlab="Bulan", ylab="Jumlah ", type="o")
+
+```
+```{r}
+plot(decompose(data))
+```
+
+
+Membagi data train dan data test
+```{r}
+#splitting data
+training<-data[1:64]
+testing<-data[65:72]
+training.ts<-ts(training)
+testing.ts<-ts(testing,start=60)
+plot(training.ts)
+plot(testing.ts)
+
+```
+
+Cek Kestasioneran data
+```{r}
+adf.test(training)
+#data tidak stasioner karena p-value>5%
+```
+dataa tidak stasioner karena p-value diperoleh lebih besar dibanding alpha = 0.05
+
+```{r}
+# Plot ACF dan PACF
+par(mfrow=c(1,2))
+acf(training, main="ACF Plot")
+pacf(training, main="PACF Plot")
+#Berdasarkan plot ACF pada data, nilai korelasi setiap lag sebagaimana terlihat pada plot di atas 
+```
+
+
+Musiman
+```{r}
+#musiman
+diff_musiman <- diff(training,differences=1, lag=12)
+
+#test stasioner rata-rata
+#seasonal
+adf.test(diff_musiman)
+```
+
+Non Musiman
+```{r}
+#nonmusiman
+#differencing non-musiman (lag 1 setelah differencing musiman)
+diff_nonmusim <- diff(diff_musiman, differences = 1)
+
+#tes stasioner non musiman
+adf.test(diff_nonmusim)
+```
+Dari uji adf dapat dilihat nilai p-value yang diperoleh lebih kecil dari 0.05. Maka sudah cukup bukti yang menunjukkan bahwa data telah stasioner.
+
+```{r}
+
+# Plot ACF dan PACF non-musiman
+par(mfrow=c(1,2))
+acf(diff_nonmusim, lag.max=36, main="ACF Plot setelah Differencing")
+pacf(diff_nonmusim, lag.max=36, main="PACF Plot setelah Differencing")
+```
+Pada model SARIMA notasi yang digunakan dalam membuat model yaitu (p,d,q) sebagai notasi non musiman dan (P,D,Q) sebagai notasi musimannya. Output lag yang digunakan pada grafik ACF dan PACF hanya 4 lag pertama.
+
+Berdasarkan plot tersebut,batang PACF keluar hingga lag ke-1 dan pada lag 12, 24, 36 lag yang keluar lag 1 menunjukkan AR yaitu p = 1 dan SAR yaitu P = 1. Pada batang ACF keluar hingga lag ke-1 dan pada lag 12, 24, 36 keluar hingga lag ke-1 maka menunjukkan order MA yaitu q = 1 dan Q = 1. Serta sebelumnya dilakukan differensi musiman orde 1 (d = 1) dan non-musiman orde 1 (D = 1).
+
+Maka, 
+p = 1
+d = 1
+q = 1
+P = 1
+D = 1
+Q = 1
+Dengan begitu diperoleh model utama SARIMA (1,1,1)(1,1,1). Overfitting terhadap model dapat dipilih model dengan order lebih rendah atau kombinasi order pada model utama. Kali ini akan diuji 6 model, yaitu
+
+1. SARIMA(1, 1, 1)(1, 1, 1) — Model utama untuk baseline.
+2. SARIMA(1, 1, 1)(1, 1, 0) — Penyederhanaan dari model utama dengan parameter musiman yang lebih sedikit.
+3. SARIMA(1, 1, 1)(0, 1, 1) — Model dengan pengurangan komponen AR musiman, tetapi mempertahankan seasonal MA.
+4. SARIMA(0, 1, 1)(1, 1, 1) — Model dengan pengurangan komponen AR non-musiman, tetapi mempertahankan komponen musiman yang kuat.
+5. SARIMA(1, 1, 0)(1, 1, 1) — Model dengan pengurangan komponen MA non-musiman.
+6. SARIMA(0, 1, 0)(1, 1, 1) — Model yang paling sederhana namun tetap mempertahankan komponen musiman yang kuat.
+
+
+
+Pembentukan Model
+
+```{r}
+# Kombinasi Model 1: (1,1,1)(1,1,1)
+model_1 <- Arima(ts(training, frequency = 12),
+                 order = c(1, 1, 1),
+                 seasonal = list(order = c(1,1,1), period = frequency(training)),
+                 method = "ML",
+                 include.drift = FALSE)
+print("Model 1: p = 1, d = 1, q = 1, P = 1, D = 1, Q = 1")
+print(summary(model_1))
+print(accuracy(model_1))
+
+# Kombinasi Model 2: (1, 1, 1)(1, 1, 0) 
+model_2 <- Arima(ts(training, frequency = 12),
+                 order = c(1, 1, 1),
+                 seasonal = list(order = c(1, 1, 0), period = frequency(training)),
+                 method = "ML",
+                 include.drift = FALSE)
+print("Model 2: p = 1, d = 1, q = 1, P = 1, D = 1, Q = 0")
+print(summary(model_2))
+print(accuracy(model_2))
+
+# Kombinasi Model 2:  (1, 1, 1)(0, 1, 1)
+model_3 <- Arima(ts(training, frequency = 12),
+                 order = c(1, 1, 1),
+                 seasonal = list(order = c(0, 1, 1), period = frequency(training)),
+                 method = "ML",
+                 include.drift = FALSE)
+print("Model 3: p = 1, d = 1, q = 1, P = 0, D = 1, Q = 3")
+print(summary(model_3))
+print(accuracy(model_3))
+
+# Kombinasi Model 4:  (0, 1, 1)(1, 1, 1)
+model_4 <- Arima(ts(training, frequency = 12),
+                 order = c(0, 1, 1),
+                 seasonal = list(order = c(1, 1, 1), period = frequency(training)),
+                 method = "ML",
+                 include.drift = FALSE)
+print("Model 4: p = 0, d = 1, q = 1, P = 1, D = 1, Q = 1")
+print(summary(model_4))
+print(accuracy(model_4))
+
+# Kombinasi Model 5:  (1, 1, 0)(1, 1, 1)
+
+model_5 <- Arima(ts(training, frequency = 12),
+                 order = c(1, 1, 0),
+                 seasonal = list(order = c(1, 1, 1), period = frequency(training)),
+                 method = "ML",
+                 include.drift = FALSE)
+print("Model 5: p = 1, d = 1, q = 0, P = 1, D = 1, Q = 1")
+print(summary(model_5))
+print(accuracy(model_5))
+
+# Kombinasi Model 6: (0, 1, 0)(1, 1, 1)
+model_6 <- Arima(ts(training, frequency = 12),
+                 order = c(0, 1, 0),
+                 seasonal = list(order = c(1, 1, 1), period = frequency(training)),
+                 method = "ML",
+                 include.drift = FALSE)
+print("Model 6: p = 0, d = 1, q = 0, P = 1, D = 1, Q = 1")
+print(summary(model_6))
+print(accuracy(model_6))
+
+
+
+```
+
+
+Model terbaik SARIMA(0, 1, 0)(1, 1, 1) dengan AIC terkecil adalah AIC=1626.6
+
+
+
+```{r}
+#Uji Diagnostik
+#Diagnostik Model: Eksploratif
+#Analisis sisaan dapat dilihat secara eksploratif menggunakan Q-Q plot, residuals plot, ACF dan PACF plot.
+
+sisaan <- model_6$residuals
+par(mfrow=c(2,2))
+qqnorm(sisaan)
+qqline(sisaan, col = "red", lwd =1)
+plot(c(1:length(sisaan)),sisaan)
+acf(sisaan)
+pacf(sisaan)
+
+```
+
+
+```{r}
+#Diagnostik Model: Uji Formal
+#1. Sisaan Menyebar Normal
+shapiro.test(sisaan)
+#hasil Shapiro-Wilk test, diperoleh p-value (0.3484) > α (0.05) maka tolak H0. 
+#Artinya,  cukup bukti untuk menyatakan bahwa sisaan menyebar normal pada taraf nyata 5%.
+```
+
+
+```{r}
+#2. Sisaan Saling Bebas
+#Uji formal ini dilakukan dengan LJung-Box test.
+Box.test(sisaan, type = "Ljung")
+#Berdasarkan LJung-Box test, diperoleh p-value (0.7077) > α (0.05), maka tak tolak H0. Artinya, cukup bukti untuk menyatakan bahwa sisaan antara lag saling bebas atau dapat dikatakan tidak ada autokorelasi antara sisaan lag pada taraf nyata 5%.
+```
+
+
+```{r}
+#3. Nilai Tengah Sisaan Sama dengan Nol
+t.test(sisaan, mu = 0, conf.level = 0.95)
+```
+```{r}
+# Menggunakan SARIMA (0, 1, 0)(1,1,1)[12] untuk ramalan
+ramalan <- forecast::forecast(
+  Arima(
+    training.ts, 
+    order = c(0, 1, 0),                # Non-musiman ARIMA(0, 1, 0)
+    seasonal = list(order = c(1, 1, 1), period = 12),  # Musiman SARIMA(1, 1, 0)[12]
+    method = "ML", 
+    include.drift = TRUE                # Termasuk drift jika diperlukan
+  ), 
+  h = 8  # Prediksi 8 periode ke depan
+)
+
+# Menyimpan hasil ramalan
+data.ramalan <- ramalan$mean
+
+# Menampilkan hasil ramalan
+data.ramalan
+
+```
+
+
+
+```{r}
+# Forecasting
+autoplot(ramalan) +
+  ggtitle("Ramalan Produksi Gula Menggunakan SARIMA") +
+  xlab("Bulan") + ylab("Jumlah Produksi")
+
+```
+
+
+```{r}
+testing
+data.ramalan
+```
+
+```{r}
+# Plot ramalan
+plot(data.ramalan, lwd = 2, main = "Ramalan dengan Model SARIMA Terbaik")
+```
+
+
+
+
+
+
+
+```{r}
+perbandingan.temp<-matrix(data=c(testing.ts[1:5], data.ramalan[1:5]), nrow = 5, ncol = 2)
+colnames(perbandingan.temp)<-c("Aktual","Hasil Forecast")
+head(perbandingan.temp)
+```
+
+
+```{r}
+accuracy(testing, data.ramalan)
+
+```
+
+
+
+
+
+
+
+
+
+
+
